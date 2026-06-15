@@ -67,6 +67,9 @@
       const [loading, setLoading] = useState(false);
       const [sidebarOpen, setSidebarOpen] = useState(true);
       const [copied, setCopied] = useState(null);
+      const [apiKey, setApiKey] = useState(() => localStorage.getItem("cosmo_api_key") || "");
+      const [showKeyModal, setShowKeyModal] = useState(() => !localStorage.getItem("cosmo_api_key"));
+      const [keyInput, setKeyInput] = useState("");
 
       const msgEndRef = useRef(null);
       const taRef = useRef(null);
@@ -132,7 +135,12 @@
         try {
           const res = await fetch("https://api.anthropic.com/v1/messages", {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: {
+              "Content-Type": "application/json",
+              "x-api-key": apiKey,
+              "anthropic-version": "2023-06-01",
+              "anthropic-dangerous-direct-browser-access": "true",
+            },
             body: JSON.stringify({
               model: "claude-sonnet-4-20250514",
               max_tokens: 1000,
@@ -173,6 +181,15 @@
         navigator.clipboard.writeText(text).catch(() => {});
         setCopied(idx);
         setTimeout(() => setCopied(null), 2000);
+      };
+
+      const saveKey = () => {
+        const k = keyInput.trim();
+        if (!k) return;
+        localStorage.setItem("cosmo_api_key", k);
+        setApiKey(k);
+        setShowKeyModal(false);
+        setKeyInput("");
       };
 
       return (
@@ -536,9 +553,83 @@
               text-align: center; margin-top: 9px;
               font-size: 11px; color: #1e2a38;
             }
+
+            /* ── API Key Modal ───────────────── */
+            .key-overlay {
+              position: fixed; inset: 0; z-index: 100;
+              background: rgba(0,0,0,0.72);
+              backdrop-filter: blur(8px);
+              display: flex; align-items: center; justify-content: center;
+            }
+            .key-modal {
+              background: #0d0d1e;
+              border: 1px solid rgba(139,92,246,0.35);
+              border-radius: 16px;
+              padding: 32px 28px;
+              width: 100%; max-width: 400px;
+              box-shadow: 0 0 60px rgba(139,92,246,0.2);
+            }
+            .key-modal-icon { font-size: 36px; text-align: center; margin-bottom: 14px; animation: welcomePulse 3s ease-in-out infinite; }
+            .key-modal-title {
+              font-family: 'Sora', sans-serif; font-weight: 700; font-size: 18px;
+              background: linear-gradient(135deg, #c4b5fd 10%, #67e8f9 90%);
+              -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+              background-clip: text; text-align: center; margin-bottom: 8px;
+            }
+            .key-modal-sub { color: #475569; font-size: 13px; text-align: center; line-height: 1.6; margin-bottom: 22px; }
+            .key-modal-sub a { color: #a78bfa; text-decoration: none; }
+            .key-modal-sub a:hover { text-decoration: underline; }
+            .key-input {
+              width: 100%; padding: 11px 14px;
+              background: rgba(255,255,255,0.04);
+              border: 1px solid rgba(139,92,246,0.3);
+              border-radius: 10px; outline: none;
+              color: #f1f5f9; font-size: 13.5px;
+              font-family: 'Figtree', sans-serif;
+              caret-color: #8b5cf6;
+              margin-bottom: 12px;
+              transition: border-color 0.2s;
+            }
+            .key-input:focus { border-color: rgba(139,92,246,0.6); }
+            .key-input::placeholder { color: #2d3a4e; }
+            .key-save-btn {
+              width: 100%; padding: 11px;
+              background: linear-gradient(135deg, #7c3aed, #06b6d4);
+              border: none; border-radius: 10px;
+              color: #fff; font-size: 14px; font-weight: 600;
+              font-family: 'Figtree', sans-serif; cursor: pointer;
+              box-shadow: 0 0 20px rgba(139,92,246,0.35);
+              transition: opacity 0.2s;
+            }
+            .key-save-btn:hover { opacity: 0.88; }
+            .key-note { color: #2d3a4e; font-size: 11px; text-align: center; margin-top: 10px; }
           `}</style>
 
           <div className="cosmo-wrap">
+            {/* ── API Key Modal ── */}
+            {showKeyModal && (
+              <div className="key-overlay">
+                <div className="key-modal">
+                  <div className="key-modal-icon">✦</div>
+                  <div className="key-modal-title">Enter your API Key</div>
+                  <p className="key-modal-sub">
+                    Get a free key at <a href="https://console.anthropic.com" target="_blank">console.anthropic.com</a>.<br/>
+                    Your key is stored locally in your browser only.
+                  </p>
+                  <input
+                    className="key-input"
+                    type="password"
+                    placeholder="sk-ant-..."
+                    value={keyInput}
+                    onChange={(e) => setKeyInput(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === "Enter") saveKey(); }}
+                    autoFocus
+                  />
+                  <button className="key-save-btn" onClick={saveKey}>Launch Cosmo AI →</button>
+                  <p className="key-note">Your key never leaves your browser.</p>
+                </div>
+              </div>
+            )}
             {/* ── Star field ── */}
             <div style={{ position:"absolute", inset:0, pointerEvents:"none", zIndex:0 }}>
               {STAR_DATA.map((s) => (
@@ -594,7 +685,11 @@
 
                 <div className="sb-foot">
                   <span>Cosmo-1 Stellar</span>
-                  <span>v1.0</span>
+                  <button
+                    onClick={() => { setKeyInput(""); setShowKeyModal(true); }}
+                    style={{ background:"none", border:"none", color:"#2d3a4e", cursor:"pointer", fontSize:10, fontFamily:"'Figtree',sans-serif", padding:0 }}
+                    title="Change API key"
+                  >⚙ key</button>
                 </div>
               </aside>
             )}
