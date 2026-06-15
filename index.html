@@ -1,0 +1,713 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Advanced Cosmo AI</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.22.5/babel.min.js"></script>
+  <style>
+    html, body, #root { height: 100%; margin: 0; padding: 0; overflow: hidden; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useRef, useEffect } = React;
+
+    const SYSTEM_PROMPT = `You are Advanced Cosmo AI, a brilliant and intellectually curious AI assistant. You are knowledgeable across science, technology, arts, philosophy, mathematics, history, and more. You are helpful, honest, and aim to provide clear, accurate, and insightful responses. Your personality is warm, thoughtful, and engaging — you love drawing connections between different fields and illuminating the unexpected beauty in ideas.`;
+
+    const SUGGESTIONS = [
+      { icon: "✍️", label: "Help me write a creative story about space" },
+      { icon: "🔭", label: "Explain quantum entanglement simply" },
+      { icon: "💻", label: "Help me debug and explain a code problem" },
+      { icon: "🧠", label: "Teach me something fascinating about the universe" },
+    ];
+
+    let _nextId = 1;
+    const genId = () => _nextId++;
+
+    function escapeHtml(str) {
+      return str
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;");
+    }
+
+    function renderMarkdown(raw) {
+      let txt = escapeHtml(raw);
+      txt = txt.replace(/```[\w]*\n?([\s\S]*?)```/g, (_, code) =>
+        `<pre style="background:rgba(0,0,0,0.35);border:1px solid rgba(139,92,246,0.25);border-radius:8px;padding:12px 14px;font-family:'Courier New',monospace;font-size:12.5px;overflow-x:auto;margin:8px 0;color:#c4b5fd;">${code.trim()}</pre>`
+      );
+      txt = txt.replace(/`(.+?)`/g, `<code style="background:rgba(139,92,246,0.18);padding:2px 6px;border-radius:4px;font-family:'Courier New',monospace;font-size:12.5px;color:#c4b5fd;">$1</code>`);
+      txt = txt.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+      txt = txt.replace(/\*(.+?)\*/g, "<em>$1</em>");
+      txt = txt.replace(/\n/g, "<br/>");
+      return txt;
+    }
+
+    const STAR_DATA = Array.from({ length: 55 }, (_, i) => ({
+      id: i,
+      size: Math.random() > 0.78 ? 2.5 : Math.random() > 0.55 ? 1.5 : 1,
+      x: Math.random() * 100,
+      y: Math.random() * 100,
+      color: Math.random() > 0.52 ? "#8b5cf6" : Math.random() > 0.5 ? "#06b6d4" : "#ffffff",
+      dur: (3.2 + Math.random() * 4.5).toFixed(2),
+      delay: (Math.random() * 4).toFixed(2),
+    }));
+
+    function CosmoAI() {
+      const [convs, setConvs] = useState([
+        { id: genId(), title: "New conversation", messages: [] },
+      ]);
+      const [activeId, setActiveId] = useState(1);
+      const [input, setInput] = useState("");
+      const [loading, setLoading] = useState(false);
+      const [sidebarOpen, setSidebarOpen] = useState(true);
+      const [copied, setCopied] = useState(null);
+
+      const msgEndRef = useRef(null);
+      const taRef = useRef(null);
+
+      const active = convs.find((c) => c.id === activeId) ?? convs[0];
+
+      useEffect(() => {
+        msgEndRef.current?.scrollIntoView({ behavior: "smooth" });
+      }, [active?.messages?.length, loading]);
+
+      useEffect(() => {
+        const ta = taRef.current;
+        if (!ta) return;
+        ta.style.height = "auto";
+        ta.style.height = Math.min(ta.scrollHeight, 190) + "px";
+      }, [input]);
+
+      const newChat = () => {
+        const id = genId();
+        setConvs((p) => [{ id, title: "New conversation", messages: [] }, ...p]);
+        setActiveId(id);
+        setInput("");
+      };
+
+      const delChat = (id, e) => {
+        e.stopPropagation();
+        setConvs((p) => {
+          const rest = p.filter((c) => c.id !== id);
+          if (!rest.length) {
+            const nid = genId();
+            setActiveId(nid);
+            return [{ id: nid, title: "New conversation", messages: [] }];
+          }
+          if (activeId === id) setActiveId(rest[0].id);
+          return rest;
+        });
+      };
+
+      const send = async () => {
+        const text = input.trim();
+        if (!text || loading) return;
+        setInput("");
+        setLoading(true);
+
+        const prev = active.messages;
+        const msgs = [...prev, { role: "user", content: text }];
+
+        setConvs((p) =>
+          p.map((c) =>
+            c.id === activeId
+              ? {
+                  ...c,
+                  messages: msgs,
+                  title:
+                    prev.length === 0
+                      ? text.slice(0, 44) + (text.length > 44 ? "…" : "")
+                      : c.title,
+                }
+              : c
+          )
+        );
+
+        try {
+          const res = await fetch("https://api.anthropic.com/v1/messages", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              model: "claude-sonnet-4-20250514",
+              max_tokens: 1000,
+              system: SYSTEM_PROMPT,
+              messages: msgs,
+            }),
+          });
+          const data = await res.json();
+          const reply =
+            data.content?.[0]?.text ?? "Sorry, I couldn't generate a response.";
+          setConvs((p) =>
+            p.map((c) =>
+              c.id === activeId
+                ? { ...c, messages: [...msgs, { role: "assistant", content: reply }] }
+                : c
+            )
+          );
+        } catch {
+          setConvs((p) =>
+            p.map((c) =>
+              c.id === activeId
+                ? {
+                    ...c,
+                    messages: [
+                      ...msgs,
+                      { role: "assistant", content: "Connection error. Please try again." },
+                    ],
+                  }
+                : c
+            )
+          );
+        } finally {
+          setLoading(false);
+        }
+      };
+
+      const copy = (text, idx) => {
+        navigator.clipboard.writeText(text).catch(() => {});
+        setCopied(idx);
+        setTimeout(() => setCopied(null), 2000);
+      };
+
+      return (
+        <>
+          <style>{`
+            @import url('https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700&family=Figtree:wght@300;400;500;600&display=swap');
+
+            *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+            ::-webkit-scrollbar { width: 4px; }
+            ::-webkit-scrollbar-track { background: transparent; }
+            ::-webkit-scrollbar-thumb { background: rgba(139,92,246,0.3); border-radius: 2px; }
+            ::-webkit-scrollbar-thumb:hover { background: rgba(139,92,246,0.55); }
+
+            @keyframes twinkle {
+              0%,100% { opacity: 0.08; }
+              50% { opacity: 0.62; }
+            }
+            @keyframes cosmoPulse {
+              0%,100% { opacity: 0.22; transform: scale(0.72); }
+              50% { opacity: 1; transform: scale(1); }
+            }
+            @keyframes msgSlideIn {
+              from { opacity: 0; transform: translateY(10px); }
+              to { opacity: 1; transform: translateY(0); }
+            }
+            @keyframes logoGlow {
+              0% { box-shadow: 0 0 14px rgba(139,92,246,0.5); }
+              50% { box-shadow: 0 0 28px rgba(6,182,212,0.65); }
+              100% { box-shadow: 0 0 14px rgba(139,92,246,0.5); }
+            }
+            @keyframes welcomePulse {
+              0%,100% { filter: drop-shadow(0 0 14px rgba(139,92,246,0.55)); }
+              50% { filter: drop-shadow(0 0 30px rgba(6,182,212,0.8)); }
+            }
+
+            .cosmo-wrap {
+              font-family: 'Figtree', sans-serif;
+              display: flex;
+              height: 100vh;
+              background: #07070e;
+              color: #f1f5f9;
+              position: relative;
+              overflow: hidden;
+            }
+
+            /* ── Sidebar ─────────────────────── */
+            .sidebar {
+              width: 266px;
+              flex-shrink: 0;
+              background: rgba(11,11,24,0.98);
+              border-right: 1px solid rgba(139,92,246,0.16);
+              display: flex;
+              flex-direction: column;
+              position: relative;
+              z-index: 10;
+            }
+            .sb-logo {
+              padding: 18px 16px 15px;
+              border-bottom: 1px solid rgba(139,92,246,0.1);
+              display: flex;
+              align-items: center;
+              gap: 11px;
+            }
+            .logo-orb {
+              width: 38px; height: 38px;
+              border-radius: 10px;
+              background: linear-gradient(135deg, #7c3aed 0%, #06b6d4 100%);
+              display: flex; align-items: center; justify-content: center;
+              font-size: 19px;
+              flex-shrink: 0;
+              animation: logoGlow 4s ease-in-out infinite;
+            }
+            .logo-text-primary {
+              font-family: 'Sora', sans-serif;
+              font-weight: 700;
+              font-size: 13.5px;
+              background: linear-gradient(90deg, #c4b5fd 0%, #67e8f9 100%);
+              -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+              background-clip: text;
+              letter-spacing: -0.01em;
+              line-height: 1.2;
+            }
+            .logo-text-sub {
+              font-size: 9px;
+              color: #3d4a5e;
+              letter-spacing: 3px;
+              font-weight: 600;
+              text-transform: uppercase;
+              margin-top: 2px;
+            }
+            .new-btn {
+              margin: 11px 10px 8px;
+              padding: 10px 14px;
+              background: rgba(139,92,246,0.1);
+              border: 1px solid rgba(139,92,246,0.26);
+              border-radius: 10px;
+              color: #a78bfa;
+              cursor: pointer;
+              font-size: 13px;
+              font-weight: 500;
+              display: flex; align-items: center; gap: 9px;
+              font-family: 'Figtree', sans-serif;
+              transition: background 0.2s, border-color 0.2s;
+              width: calc(100% - 20px);
+            }
+            .new-btn:hover {
+              background: rgba(139,92,246,0.2);
+              border-color: rgba(139,92,246,0.42);
+            }
+            .conv-section-label {
+              padding: 7px 14px 4px;
+              font-size: 9.5px; color: #2d3a4e;
+              font-weight: 600; letter-spacing: 2px;
+              text-transform: uppercase;
+            }
+            .conv-list { flex: 1; overflow-y: auto; padding: 0 8px 8px; }
+            .conv-item {
+              padding: 9px 10px;
+              border-radius: 8px;
+              cursor: pointer;
+              display: flex; align-items: center; gap: 8px;
+              border: 1px solid transparent;
+              margin-bottom: 2px;
+              transition: background 0.15s, border-color 0.15s;
+              position: relative;
+            }
+            .conv-item:hover { background: rgba(139,92,246,0.1); }
+            .conv-item.active {
+              background: rgba(139,92,246,0.16);
+              border-color: rgba(139,92,246,0.32);
+            }
+            .conv-icon { font-size: 13px; flex-shrink: 0; }
+            .conv-name {
+              font-size: 12.5px;
+              flex: 1;
+              white-space: nowrap;
+              overflow: hidden;
+              text-overflow: ellipsis;
+              color: #94a3b8;
+            }
+            .conv-item.active .conv-name { color: #c4b5fd; }
+            .del-btn {
+              background: none; border: none;
+              color: #475569; cursor: pointer;
+              font-size: 15px; padding: 2px 5px;
+              border-radius: 4px;
+              opacity: 0; flex-shrink: 0;
+              line-height: 1;
+              transition: opacity 0.2s, color 0.2s, background 0.2s;
+            }
+            .conv-item:hover .del-btn { opacity: 1; }
+            .del-btn:hover { color: #f87171; background: rgba(239,68,68,0.12); }
+            .sb-foot {
+              padding: 10px 14px;
+              border-top: 1px solid rgba(139,92,246,0.1);
+              display: flex; justify-content: space-between;
+              font-size: 10px; color: #1e2a38;
+            }
+
+            /* ── Main area ───────────────────── */
+            .main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+            .topbar {
+              padding: 12px 22px;
+              border-bottom: 1px solid rgba(139,92,246,0.1);
+              display: flex; align-items: center; gap: 13px;
+              background: rgba(7,7,14,0.8);
+              backdrop-filter: blur(18px);
+              flex-shrink: 0;
+            }
+            .topbar-menu {
+              background: none; border: none;
+              color: #4b5a6e; cursor: pointer;
+              font-size: 20px; padding: 4px;
+              line-height: 1;
+              transition: color 0.2s;
+              display: flex; align-items: center;
+            }
+            .topbar-menu:hover { color: #94a3b8; }
+            .topbar-name {
+              font-family: 'Sora', sans-serif;
+              font-weight: 600; font-size: 14.5px; color: #e2e8f0;
+            }
+            .model-pill {
+              margin-left: auto;
+              padding: 4px 13px;
+              background: rgba(6,182,212,0.07);
+              border: 1px solid rgba(6,182,212,0.2);
+              border-radius: 999px;
+              font-size: 11px; color: #67e8f9; font-weight: 500;
+              letter-spacing: 0.01em;
+            }
+
+            /* ── Messages ────────────────────── */
+            .msgs-area { flex: 1; overflow-y: auto; padding: 28px 22px; }
+
+            .welcome {
+              display: flex; flex-direction: column;
+              align-items: center; justify-content: center;
+              min-height: 100%; text-align: center;
+              padding: 36px 20px;
+            }
+            .welcome-star {
+              font-size: 56px; margin-bottom: 20px;
+              animation: welcomePulse 3s ease-in-out infinite;
+            }
+            .welcome-h1 {
+              font-family: 'Sora', sans-serif;
+              font-size: 30px; font-weight: 700;
+              background: linear-gradient(135deg, #c4b5fd 10%, #67e8f9 90%);
+              -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+              background-clip: text;
+              letter-spacing: -0.03em;
+              margin-bottom: 12px;
+            }
+            .welcome-p {
+              color: #475569; font-size: 15px;
+              max-width: 370px; line-height: 1.68;
+              margin-bottom: 32px;
+            }
+            .chips {
+              display: grid; grid-template-columns: 1fr 1fr;
+              gap: 10px; width: 100%; max-width: 510px;
+            }
+            .chip {
+              padding: 13px 15px;
+              background: rgba(139,92,246,0.07);
+              border: 1px solid rgba(139,92,246,0.17);
+              border-radius: 12px;
+              color: #94a3b8; cursor: pointer;
+              font-size: 12.5px; text-align: left;
+              font-family: 'Figtree', sans-serif;
+              display: flex; align-items: flex-start; gap: 9px;
+              transition: all 0.2s;
+            }
+            .chip:hover {
+              background: rgba(139,92,246,0.16);
+              border-color: rgba(139,92,246,0.38);
+              transform: translateY(-2px);
+              color: #c4b5fd;
+            }
+
+            .msg-thread {
+              max-width: 748px;
+              margin: 0 auto;
+              display: flex; flex-direction: column;
+              gap: 24px;
+            }
+            .msg-row {
+              display: flex; gap: 14px; align-items: flex-start;
+              animation: msgSlideIn 0.28s ease;
+            }
+            .msg-row.user { flex-direction: row-reverse; }
+            .avatar {
+              width: 34px; height: 34px;
+              border-radius: 50%; flex-shrink: 0;
+              display: flex; align-items: center; justify-content: center;
+              font-size: 15px;
+            }
+            .avatar.ai {
+              background: linear-gradient(135deg, #7c3aed, #06b6d4);
+              box-shadow: 0 0 14px rgba(139,92,246,0.45);
+            }
+            .avatar.user {
+              background: rgba(139,92,246,0.2);
+              border: 1px solid rgba(139,92,246,0.35);
+            }
+            .bubble-wrap { max-width: 80%; position: relative; }
+            .bubble {
+              padding: 12px 17px;
+              font-size: 14px; line-height: 1.7;
+            }
+            .bubble.ai {
+              background: rgba(255,255,255,0.04);
+              border: 1px solid rgba(255,255,255,0.07);
+              border-radius: 4px 16px 16px 16px;
+              color: #e2e8f0;
+            }
+            .bubble.user {
+              background: rgba(139,92,246,0.14);
+              border: 1px solid rgba(139,92,246,0.28);
+              border-radius: 16px 4px 16px 16px;
+              color: #e2e8f0;
+              white-space: pre-wrap;
+              word-break: break-word;
+            }
+            .copy-btn {
+              margin-top: 5px;
+              background: none; border: none;
+              color: #2d3a4e; cursor: pointer;
+              font-size: 11px; padding: 2px 6px;
+              border-radius: 4px;
+              font-family: 'Figtree', sans-serif;
+              transition: color 0.2s;
+              display: block;
+            }
+            .copy-btn:hover { color: #94a3b8; }
+
+            /* Typing indicator */
+            .typing-wrap {
+              background: rgba(255,255,255,0.04);
+              border: 1px solid rgba(255,255,255,0.07);
+              border-radius: 4px 16px 16px 16px;
+              padding: 14px 18px;
+              display: flex; gap: 5px; align-items: center;
+            }
+            .typing-dot {
+              width: 7px; height: 7px;
+              border-radius: 50%;
+              background: linear-gradient(135deg, #8b5cf6, #06b6d4);
+              animation: cosmoPulse 1.3s ease-in-out infinite;
+            }
+            .typing-dot:nth-child(2) { animation-delay: 0.2s; }
+            .typing-dot:nth-child(3) { animation-delay: 0.4s; }
+
+            /* ── Input bar ───────────────────── */
+            .inputbar {
+              padding: 14px 22px 20px;
+              background: rgba(7,7,14,0.88);
+              backdrop-filter: blur(18px);
+              border-top: 1px solid rgba(139,92,246,0.1);
+              flex-shrink: 0;
+            }
+            .input-inner { max-width: 748px; margin: 0 auto; }
+            .input-box {
+              display: flex; gap: 10px;
+              background: rgba(255,255,255,0.04);
+              border: 1px solid rgba(139,92,246,0.22);
+              border-radius: 14px;
+              padding: 10px 10px 10px 17px;
+              align-items: flex-end;
+              transition: border-color 0.2s;
+            }
+            .input-box:focus-within { border-color: rgba(139,92,246,0.52); }
+            .input-ta {
+              flex: 1; background: none; border: none; outline: none;
+              color: #f1f5f9; font-size: 14px;
+              line-height: 1.6; resize: none;
+              font-family: 'Figtree', sans-serif;
+              min-height: 26px; padding-top: 2px;
+              caret-color: #8b5cf6;
+            }
+            .input-ta::placeholder { color: #2d3a4e; }
+            .send-btn {
+              width: 36px; height: 36px;
+              border-radius: 10px; border: none;
+              display: flex; align-items: center; justify-content: center;
+              color: #fff; font-size: 19px; flex-shrink: 0;
+              transition: all 0.2s;
+            }
+            .send-btn.on {
+              background: linear-gradient(135deg, #7c3aed, #06b6d4);
+              box-shadow: 0 0 16px rgba(139,92,246,0.42);
+              cursor: pointer;
+            }
+            .send-btn.off {
+              background: rgba(255,255,255,0.06);
+              color: #2d3a4e; cursor: default;
+            }
+            .disclaimer {
+              text-align: center; margin-top: 9px;
+              font-size: 11px; color: #1e2a38;
+            }
+          `}</style>
+
+          <div className="cosmo-wrap">
+            {/* ── Star field ── */}
+            <div style={{ position:"absolute", inset:0, pointerEvents:"none", zIndex:0 }}>
+              {STAR_DATA.map((s) => (
+                <div
+                  key={s.id}
+                  style={{
+                    position:"absolute",
+                    width: s.size, height: s.size,
+                    borderRadius:"50%",
+                    background: s.color,
+                    left: s.x + "%", top: s.y + "%",
+                    animationName:"twinkle",
+                    animationDuration: s.dur + "s",
+                    animationDelay: s.delay + "s",
+                    animationTimingFunction:"ease-in-out",
+                    animationIterationCount:"infinite",
+                  }}
+                />
+              ))}
+            </div>
+
+            {/* ── Sidebar ── */}
+            {sidebarOpen && (
+              <aside className="sidebar">
+                <div className="sb-logo">
+                  <div className="logo-orb">✦</div>
+                  <div>
+                    <div className="logo-text-primary">Advanced Cosmo</div>
+                    <div className="logo-text-sub">AI</div>
+                  </div>
+                </div>
+
+                <button className="new-btn" onClick={newChat}>
+                  <span style={{ fontSize:20, lineHeight:1 }}>⊕</span>
+                  New conversation
+                </button>
+
+                <div className="conv-section-label">Recent</div>
+
+                <div className="conv-list">
+                  {convs.map((c) => (
+                    <div
+                      key={c.id}
+                      className={`conv-item${c.id === activeId ? " active" : ""}`}
+                      onClick={() => setActiveId(c.id)}
+                    >
+                      <span className="conv-icon">💬</span>
+                      <span className="conv-name">{c.title}</span>
+                      <button className="del-btn" onClick={(e) => delChat(c.id, e)}>×</button>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="sb-foot">
+                  <span>Cosmo-1 Stellar</span>
+                  <span>v1.0</span>
+                </div>
+              </aside>
+            )}
+
+            {/* ── Main ── */}
+            <main className="main" style={{ zIndex:5 }}>
+              {/* Topbar */}
+              <div className="topbar">
+                <button className="topbar-menu" onClick={() => setSidebarOpen((v) => !v)}>≡</button>
+                {!sidebarOpen && (
+                  <div className="logo-orb" style={{ width:28, height:28, borderRadius:8, fontSize:14 }}>✦</div>
+                )}
+                <span className="topbar-name">Advanced Cosmo AI</span>
+                <div className="model-pill">✦ Cosmo-1 Stellar</div>
+              </div>
+
+              {/* Messages */}
+              <div className="msgs-area">
+                {!active?.messages?.length ? (
+                  <div className="welcome">
+                    <div className="welcome-star">✦</div>
+                    <h1 className="welcome-h1">Advanced Cosmo AI</h1>
+                    <p className="welcome-p">
+                      Your intelligent cosmic companion. Ask me anything — from the depths of space to the intricacies of code.
+                    </p>
+                    <div className="chips">
+                      {SUGGESTIONS.map((s) => (
+                        <button key={s.label} className="chip" onClick={() => setInput(s.label)}>
+                          <span style={{ fontSize:16, flexShrink:0 }}>{s.icon}</span>
+                          <span>{s.label}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="msg-thread">
+                    {active.messages.map((m, i) => (
+                      <div key={i} className={`msg-row${m.role === "user" ? " user" : ""}`}>
+                        <div className={`avatar ${m.role === "user" ? "user" : "ai"}`}>
+                          {m.role === "user" ? "👤" : "✦"}
+                        </div>
+                        <div className="bubble-wrap">
+                          {m.role === "user" ? (
+                            <div className="bubble user">{m.content}</div>
+                          ) : (
+                            <>
+                              <div
+                                className="bubble ai"
+                                dangerouslySetInnerHTML={{ __html: renderMarkdown(m.content) }}
+                              />
+                              <button className="copy-btn" onClick={() => copy(m.content, i)}>
+                                {copied === i ? "✓ copied" : "copy"}
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+
+                    {loading && (
+                      <div className="msg-row">
+                        <div className="avatar ai">✦</div>
+                        <div className="typing-wrap">
+                          <div className="typing-dot" />
+                          <div className="typing-dot" />
+                          <div className="typing-dot" />
+                        </div>
+                      </div>
+                    )}
+
+                    <div ref={msgEndRef} />
+                  </div>
+                )}
+              </div>
+
+              {/* Input */}
+              <div className="inputbar">
+                <div className="input-inner">
+                  <div className="input-box">
+                    <textarea
+                      ref={taRef}
+                      className="input-ta"
+                      rows={1}
+                      value={input}
+                      placeholder="Message Cosmo AI…"
+                      onChange={(e) => setInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" && !e.shiftKey) {
+                          e.preventDefault();
+                          send();
+                        }
+                      }}
+                    />
+                    <button
+                      className={`send-btn ${input.trim() && !loading ? "on" : "off"}`}
+                      onClick={send}
+                      disabled={!input.trim() || loading}
+                    >
+                      ↑
+                    </button>
+                  </div>
+                  <p className="disclaimer">
+                    Advanced Cosmo AI may make mistakes. Verify critical information.
+                  </p>
+                </div>
+              </div>
+            </main>
+          </div>
+        </>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById("root")).render(<CosmoAI />);
+  </script>
+</body>
+</html>
